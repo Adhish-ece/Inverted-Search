@@ -1,0 +1,279 @@
+#include "main.h"
+
+int get_index(char *word)
+{
+    if (isalpha(word[0]))
+    {
+        return tolower(word[0]) - 'a';
+    }
+    return 26;
+}
+
+// Insert word and file details into database hashtable
+int insert_to_db(Wnode **hashtable, char *word, char *filename)
+{
+    int index = get_index(word);
+
+    Wnode *wtemp = hashtable[index];
+    Wnode *wprev = NULL;
+
+    while (wtemp != NULL)
+    {
+        if (strcmp(wtemp->word, word) == 0)
+        {
+            Lnode *ltemp = wtemp->slink;
+            Lnode *lprev = NULL;
+
+            while (ltemp != NULL)
+            {
+                if (strcmp(ltemp->file_name, filename) == 0)
+                {
+                    ltemp->word_count++;
+                    return SUCCESS;
+                }
+                lprev = ltemp;
+                ltemp = ltemp->link;
+            }
+
+            Lnode *new_lnode = (Lnode *)malloc(sizeof(Lnode));
+            if (!new_lnode) return FAILURE;
+
+            new_lnode->word_count = 1;
+            strcpy(new_lnode->file_name, filename);
+            new_lnode->link = NULL;
+
+            lprev->link = new_lnode;
+            wtemp->file_count++;
+            return SUCCESS;
+        }
+        wprev = wtemp;
+        wtemp = wtemp->link;
+    }
+
+    Wnode *new_wnode = (Wnode *)malloc(sizeof(Wnode));
+    Lnode *new_lnode = (Lnode *)malloc(sizeof(Lnode));
+    if (!new_wnode || !new_lnode) return FAILURE;
+
+    strcpy(new_wnode->word, word);
+    new_wnode->file_count = 1;
+    new_wnode->link = NULL;
+
+    new_lnode->word_count = 1;
+    strcpy(new_lnode->file_name, filename);
+    new_lnode->link = NULL;
+
+    new_wnode->slink = new_lnode;
+
+    if (hashtable[index] == NULL)
+    {
+        hashtable[index] = new_wnode;
+    }
+    else
+    {
+        wprev->link = new_wnode;
+    }
+
+    return SUCCESS;
+}
+
+// Option 1: Create Database
+int create_database(FileList *file_head, Wnode **hashtable)
+{
+    if (file_head == NULL)
+    {
+        return FAILURE;
+    }
+
+    FileList *temp = file_head;
+    char word[MAX_WORD_LEN];
+
+    while (temp != NULL)
+    {
+        FILE *fptr = fopen(temp->file_name, "r");
+        if (fptr == NULL)
+        {
+            print_status(FILE_NOT_AVAILABLE, temp->file_name);
+            temp = temp->link;
+            continue;
+        }
+
+        while (fscanf(fptr, "%49s", word) == 1)
+        {
+            insert_to_db(hashtable, word, temp->file_name);
+        }
+
+        fclose(fptr);
+        printf("Successful: Creation of DATABASE for file: %s\n", temp->file_name);
+        temp = temp->link;
+    }
+
+    return SUCCESS;
+}
+
+// Option 2: Display Database
+void display_database(Wnode **hashtable)
+{
+    printf("\n[Index]  [word]        file count  file/s\n");
+    printf("---------------------------------------------------\n");
+
+    int empty = 1;
+    for (int i = 0; i < SIZE; i++)
+    {
+        if (hashtable[i] != NULL)
+        {
+            empty = 0;
+            Wnode *wtemp = hashtable[i];
+            while (wtemp != NULL)
+            {
+                printf("[%d]    [%-10s]  %d file/s: ", i, wtemp->word, wtemp->file_count);
+                Lnode *ltemp = wtemp->slink;
+                while (ltemp != NULL)
+                {
+                    printf("File: %s %d  ", ltemp->file_name, ltemp->word_count);
+                    ltemp = ltemp->link;
+                }
+                printf("\n");
+                wtemp = wtemp->link;
+            }
+        }
+    }
+
+    if (empty)
+    {
+        printf("Database is empty.\n");
+    }
+}
+
+// Option 4: Search Word in Database
+int search_database(Wnode **hashtable, char *word)
+{
+    int index = get_index(word);
+    Wnode *wtemp = hashtable[index];
+
+    while (wtemp != NULL)
+    {
+        if (strcmp(wtemp->word, word) == 0)
+        {
+            printf("Word %s is present in %d file/s\n", word, wtemp->file_count);
+            Lnode *ltemp = wtemp->slink;
+            while (ltemp != NULL)
+            {
+                printf("In file: %s %d time/s\n", ltemp->file_name, ltemp->word_count);
+                ltemp = ltemp->link;
+            }
+            return SUCCESS;
+        }
+        wtemp = wtemp->link;
+    }
+
+    return DATA_NOT_FOUND;
+}
+
+// Option 5: Save Database to File
+int save_database(Wnode **hashtable, char *filename)
+{
+    FILE *fptr = fopen(filename, "w");
+    if (fptr == NULL)
+    {
+        return FAILURE;
+    }
+
+    for (int i = 0; i < SIZE; i++)
+    {
+        if (hashtable[i] != NULL)
+        {
+            fprintf(fptr, "#:%d\n", i);
+            Wnode *wtemp = hashtable[i];
+            while (wtemp != NULL)
+            {
+                fprintf(fptr, "%s:%d", wtemp->word, wtemp->file_count);
+                Lnode *ltemp = wtemp->slink;
+                while (ltemp != NULL)
+                {
+                    fprintf(fptr, ":%s:%d", ltemp->file_name, ltemp->word_count);
+                    ltemp = ltemp->link;
+                }
+                fprintf(fptr, ":#\n");
+                wtemp = wtemp->link;
+            }
+        }
+    }
+
+    fclose(fptr);
+    printf("Database is saved\n");
+    return SUCCESS;
+}
+
+// Option 3: Update Database from File / Backup File
+int update_database(Wnode **hashtable, FileList **file_head, char *filename)
+{
+    int status = validate_file(filename);
+    if (status != SUCCESS)
+    {
+        return status;
+    }
+
+    FILE *fptr = fopen(filename, "r");
+    if (fptr == NULL) return FILE_NOT_AVAILABLE;
+
+    char first_char = fgetc(fptr);
+    fclose(fptr);
+
+    if (first_char == '#')
+    {
+        fptr = fopen(filename, "r");
+        char line[500];
+
+        while (fgets(line, sizeof(line), fptr))
+        {
+            if (line[0] == '#') continue;
+
+            char *token = strtok(line, ":\n");
+            if (!token) continue;
+
+            char word[MAX_WORD_LEN];
+            strcpy(word, token);
+
+            token = strtok(NULL, ":\n");
+            if (!token) continue;
+            int file_count = atoi(token);
+
+            for (int i = 0; i < file_count; i++)
+            {
+                char fname[MAX_FILE_NAME];
+                token = strtok(NULL, ":\n");
+                if (!token || strcmp(token, "#") == 0) break;
+                strcpy(fname, token);
+
+                token = strtok(NULL, ":\n");
+                if (!token || strcmp(token, "#") == 0) break;
+                int count = atoi(token);
+
+                insert_file_list(file_head, fname);
+
+                for (int c = 0; c < count; c++)
+                {
+                    insert_to_db(hashtable, word, fname);
+                }
+            }
+        }
+        fclose(fptr);
+        printf("Successful: Database updated from backup file %s\n", filename);
+        return SUCCESS;
+    }
+    else
+    {
+        insert_file_list(file_head, filename);
+
+        fptr = fopen(filename, "r");
+        char word[MAX_WORD_LEN];
+        while (fscanf(fptr, "%49s", word) == 1)
+        {
+            insert_to_db(hashtable, word, filename);
+        }
+        fclose(fptr);
+
+        printf("Successful: Creation of DATABASE for file: %s\n", filename);
+        return SUCCESS;
+    }
+}
